@@ -1,0 +1,341 @@
+---
+title: "Resistome analyses: ShortBRED (read-based)"
+author: "Kevin S. Blake - kevin.blake@wustl.edu"
+output:
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+#### **Purpose:** Generate figures related to ShortBRED-based resistome analyses
+
+- **Figure 3A.** Abundance of identified ARG markers, quantified as reads per kilobase million (RPKM) and grouped by antibiotic drug target. 
+- **Figure 3B.** Presence-absence heatmap of select ARGs of clinical concern. Colored box indicates each ARG’s corresponding antibiotic drug target, colored the same as in Fig. 3A.
+- **Figure 3C.** The relative abundances of the top 10 most abundant ARGs in each sample.
+- **Supp. Figure 2A.** The relative abundance of ARGs to specific antibiotic drug classes identified by ShortBRED.
+- **Supp. Figure 2B.** Richness and Shannon diversity of HWW sample ARGs identified by ShortBRED. 
+
+
+```{r setup, message=FALSE, warning=FALSE}
+
+source("_common.R")
+
+```
+
+```{r load data}
+
+# Add sample column to every ShortBRED output file
+shortbred.S1$sample_ID <- "HWW-1"
+shortbred.S2$sample_ID <- "HWW-2"
+shortbred.S3$sample_ID <- "HWW-3"
+shortbred.S4$sample_ID <- "HWW-4"
+shortbred.S5$sample_ID <- "HWW-5"
+shortbred.S6$sample_ID <- "HWW-6"
+
+# Merge ShortBRED output files
+shortbred.samples <- rbind(shortbred.S1, shortbred.S2, shortbred.S3, shortbred.S4, shortbred.S5, shortbred.S6)
+    names(shortbred.samples)[names(shortbred.samples) == "Count"] <- "RPKM"
+    shortbred.merged.df <- left_join(shortbred.samples, shortbred.marker.file, by=c("Family"="ShortBRED_ARG_Family_Name"))
+
+```
+
+```{r data wranging}
+# ShortBRED marker data wrangling
+markers.prev.df <- shortbred.merged.df %>% 
+    dplyr::group_by(Shortbred_ID, Db_Name, Marker_Source, Product_Name, 
+                    Description, Seq_Type, Database_Source, AMR_Family, 
+                    AMR_Class, AMR_Mechanism, Drug_Targets, 
+                    ShortBRED_Analysis, TD_Analysis) %>% 
+    dplyr::summarise( Mean_rpkm = mean(RPKM, na.rm =T),
+                      Variance = var(RPKM, na.rm = T),
+                      Stdev = sd(RPKM, na.rm = T),
+                      Cnt = sum(RPKM > 0),
+                      Prev = mean(!is.na(RPKM) & (RPKM > 0)),
+    ) %>%
+    dplyr::ungroup()
+
+
+# Get RPKM of ea ShortBRED marker per sample
+shortbred.rpkm.df <- shortbred.merged.df %>%
+                      dplyr::select(sample_ID, Shortbred_ID, RPKM)
+  
+shortbred.data <- list( "markers" = markers.prev.df,
+                            "args.rpkm" = shortbred.rpkm.df) 
+  
+# Filter ShortBRED hits based on set criteria
+shortbred.data <- filter_shortbred_data(shortbred.data, min_rpkm = 0, prev = 0.01, var = 0, flag = TRUE)
+
+e01.shortbred.arg.marker.df <- shortbred.data$markers
+e01.shortbred.arg.rpkm.df <- shortbred.data$args.rpkm
+
+# Adds marker file metadata
+e01.shortbred.arg.sample.df <- e01.shortbred.arg.rpkm.df %>% 
+                        inner_join(shortbred.marker.file, by=c("Shortbred_ID" = "Shortbred_ID"))
+
+# ARG RPKM per sample
+alpha.target.counts.df <- aggregate(RPKM ~ sample_ID + Product_Name, e01.shortbred.arg.sample.df, sum)
+    r01.sam.by.args.df <- dcast(alpha.target.counts.df, sample_ID ~ Product_Name, fill = 0, value.var = "RPKM", fun.aggregate = sum)
+
+target.counts.df <- aggregate(RPKM ~ sample_ID + Drug_Targets, e01.shortbred.arg.sample.df, sum)
+
+head(target.counts.df)
+
+```
+
+#### **Figure 3A.** Abundance of identified ARG markers, quantified as reads per kilobase million (RPKM) and grouped by antibiotic drug target
+
+```{r Drug_target absolute abundances}
+
+# Plot Drug_target ABSOLUTE abundance (RPKM) per sample
+plot.target.abs <-  ggplot(target.counts.df, aes(x=sample_ID, y=RPKM, fill=Drug_Targets)) +
+  geom_bar(stat="identity") +
+  theme_pub() +
+  theme(
+        axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        legend.position = "right",
+        axis.ticks = element_line(color = "black", size=0.75)
+          ) +
+  ylim(0,10000) +
+  scale_fill_manual(values=drug_targets.pal) +
+  labs(y="abundance (RPKM)") 
+
+print(plot.target.abs)
+
+## Export plot
+# tmp.plot.target.abs.filename <- stringr::str_interp("${fig.path}/${fln.prfx}-arg-target-absAbund_noLeg_v1_KB.pdf")
+# ggsave2(plot.target.abs, filename=tmp.plot.target.abs.filename, device=cairo_pdf, width=1.5, height=2.5)
+
+```
+
+#### **Supp. Figure 2A.** The relative abundance of ARGs to specific antibiotic drug classes identified by ShortBRED.
+
+```{r Drug_Target relative abundances}
+
+# Plot Drug_target RELATIVE abundance (RPKM) per sample
+plot.target.rel <- ggplot(target.counts.df, aes(x=sample_ID, y=RPKM, fill=Drug_Targets)) +
+  geom_bar(stat="identity", position="fill") +
+  theme_pub() +
+  theme(
+        axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        legend.position = "right",        
+        axis.ticks = element_line(color = "black", size=0.75)
+        ) +
+  scale_fill_manual(values=drug_targets.pal) +
+  labs(y="relative abundance")
+
+print(plot.target.rel) 
+
+## Export plot
+# tmp.plot.target.rel.filename <- stringr::str_interp("${fig.path}/${fln.prfx}-arg-target-relAbund_noLeg_v1_KB.pdf")
+# ggsave2(plot.target.rel, filename=tmp.plot.target.rel.filename, device=cairo_pdf, width=1.5, height=2.5)
+
+```
+
+```{r perc abundance datatables}
+
+# Quantify % abundance Drug_Targets
+target.counts.perc.df <- target.counts.df %>%
+          group_by(sample_ID) %>%
+          mutate(perc = RPKM/sum(RPKM)) %>%
+          ungroup()
+
+head(target.counts.perc.df)
+
+## Export table
+# target.counts.perc.fname <- stringr::str_interp("${dat.path}/${fln.prfx}-arg-target-perc-abund_v1_KB.csv")
+# lapply(target.counts.split.df, function(x) write.table( data.frame(x), target.counts.perc.fname, row.names=FALSE, append= T, sep=',' ))
+
+```
+
+#### **Figure 3C.** The relative abundances of the top 10 most abundant ARGs in each sample. The relative abundances of all other ARGs not in the sample’s top 10 ARGs are grouped as “other”. 
+
+```{r Product_Name EA SAMPLE top 10 abundance}
+
+## Get total RPKM of each individual gene (i.e. Product_Name) for each sample
+tmp.product.counts.prev.df <- e01.shortbred.arg.sample.df %>% 
+                                group_by(Product_Name, sample_ID, Drug_Targets) %>% 
+                                summarise(Total_cnt = sum(RPKM)) %>% 
+                                ungroup() 
+
+# split into a list based on sample_ID
+tmp.counts.split.df <- split(tmp.product.counts.prev.df, tmp.product.counts.prev.df$sample_ID)
+
+tmp.top.ten.sample <- lapply(tmp.counts.split.df, top_n, 10 , Total_cnt) # subsets same lists to just the top 10 for each
+tmp.names.top.ten <- lapply(tmp.top.ten.sample, "[[", "Product_Name") # list of top name per sample
+tmp.names.all <- tmp.product.counts.prev.df$Product_Name    
+
+# Get a list of the "not top 10" ARGs for ea Sample
+other.names <- vector("list", length(tmp.names.top.ten))
+  for (i in seq_along(tmp.names.top.ten)){
+    other.names[[i]] <- setdiff(tmp.names.all, tmp.names.top.ten[[i]])
+  }
+
+# Load data
+tmp.product.counts.df <- dcast(tmp.product.counts.prev.df,sample_ID ~ Product_Name)
+
+# Split into separate list for each Sample, then sum just those in corresponding "not top ten" lists
+tmp.product.counts.split <- split(tmp.product.counts.df, tmp.product.counts.df$sample_ID)
+    for (i in seq_along(tmp.product.counts.split)){
+      tmp.product.counts.split[[i]]$other <- rowSums(tmp.product.counts.split[[i]][, c(other.names[[i]])])
+      tmp.product.counts.split[[i]] <- subset(tmp.product.counts.split[[i]] %>% select(c(sample_ID, tmp.names.top.ten[[i]], other)))
+    }
+    
+# merge them all back together
+tmp.final.merged2 <- bind_rows(tmp.product.counts.split)
+
+# Custom order gene variables (ordered by Drug_target)
+y <- c("sample_ID","AAC(6')","ANT(3\"\")","ANT(6)","APH(3')","APH(6)","bla_class_A","blaOXA","blaKPC","blaTEM","dfrA1","DHFR_1","ereD","mefC","mphG","msrE","catB","mphE","sul1","tetA","tetM","tetX","other")
+tmp.final.merged2 <- tmp.final.merged2[,y]
+
+tmp.product.fig <- melt(tmp.final.merged2)
+
+# Plot
+plot.product.rel <- ggplot(tmp.product.fig, aes(x=sample_ID, y=value, fill=variable)) +
+  geom_bar(stat="identity", position="fill") +
+  theme_pub() +
+  theme(
+        legend.position = "right",
+        axis.line = element_line(color="white"),
+        axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.ticks = element_line(color = "black", size=0.75)
+        ) +
+  scale_fill_manual(values=gene_name.pal) +
+  labs(y="relative abundance")
+
+print(plot.product.rel) 
+
+## Export plot
+# tmp.plot.product.rel.filename <- stringr::str_interp("${fig.path}/${fln.prfx}-product-relAbund_topten_v1_noLEG_KB.pdf")
+# ggsave2(plot.product.rel, filename=tmp.plot.product.rel.filename, device=cairo_pdf, width=1.5, height=2.5)
+
+```
+
+#### **Supp. Figure 2B.** Richness and Shannon diversity of HWW sample ARGs identified by ShortBRED. 
+
+```{r alpha diversity - richness}
+
+r02.alphadiv.df <- calc_diversityIndices(r01.sam.by.args.df)
+r02.alphadiv.df$SampleId = as.character(r02.alphadiv.df$SampleId)
+
+plot.alpha.richness <- ggplot(r02.alphadiv.df, aes(x=SampleId, y=Richness)) +
+  theme_pub() +
+  theme(
+        #legend.position = "right",
+        axis.line = element_line(color="white"),
+        axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.ticks = element_line(color = "black", size=0.75)
+        ) +
+  geom_bar(stat="identity")
+
+#print(plot.alpha.richness)
+
+## Export plot
+# tmp.rich.filename <- stringr::str_interp("${fig.path}/${fln.prfx}-shortbred-richness_v1_KB.pdf")
+# ggsave2(plot.alpha.richness, filename=tmp.rich.filename, device=cairo_pdf, width=1.5, height=2.5)
+
+```
+
+```{r alpha diversity - Shannon}
+plot.alpha.shannon <- ggplot(r02.alphadiv.df, aes(x=SampleId, y=Shannon)) +
+  theme_pub() +
+  theme(
+        #legend.position = "right",
+        axis.line = element_line(color="white"),
+        axis.text.x = element_text(angle = 90),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.ticks = element_line(color = "black", size=0.75)
+        ) +
+  geom_bar(stat="identity")
+
+#print(plot.alpha.shannon)
+
+## Export plot
+# tmp.shann.filename <- stringr::str_interp("${fig.path}/${fln.prfx}-shortbred-shannon_v1_KB.pdf")
+# ggsave2(plot.alpha.shannon, filename=tmp.shann.filename, device=cairo_pdf, width=1.5, height=2.5)
+
+```
+
+```{r richness + Shannon merged}
+plot.alpha.merged <- plot_grid(plot.alpha.richness, plot.alpha.shannon)
+
+print(plot.alpha.merged)
+```
+
+#### **Figure 3B.** Presence-absence heatmap of select ARGs of clinical concern.
+
+```{r ARG prevalence & core ARGs}
+
+r01.sam.by.args.x.df <- column_to_rownames(r01.sam.by.args.df)
+args.richness <- r01.sam.by.args.x.df %>% mutate_if(is.numeric, ~1 * (. > 0))
+
+args.prev <- as.data.frame(t(args.richness))
+
+args.prev.y <- args.prev %>%
+                  mutate(sum = rowSums(args.prev)) %>%
+                  mutate(prevalence = round(sum/6,3),
+                         isCore_args = ifelse(prevalence >= 0.95, 'Yes', 'No'))
+
+args.prev.z <- tibble::rownames_to_column(args.prev.y, "Product_Name")
+
+# # Export datatable
+# prev.filename <- stringr::str_interp("${dat.path}/${fln.prfx}-metagenome_arg_prev_v1.csv")
+# write.csv(file=prev.filename, args.prev.z, quote = F, row.names = FALSE)
+
+head(args.prev.z)
+
+```
+
+```{r heatmap - just key ARGs}
+
+# List of ARGs of urgent clinical concern
+arg.list <- c("AAC(6')","AAC(3)","ANT(2'')","APH(2'')","APH(3')","APH(6)","rmtF", # Aminoglycosides
+              "blaCTX-M","blaGES","blaIMP","blaKPC","blaNDM","blaOXA","blaTEM","blaVEB","blaVIM","blaCMY", # Beta_lactams
+              "dfrA1","dfrA12","dfrA12","dfrA14","dfrA15","dfrA5","dfrB", # Diaminopyrimidines
+              "qnrB", # Fluoroquinolones
+              "vanA",# Glycopeptides
+              "Erm","lnuB","mphA","mphB", # MLS
+              "EmrB","mdtA","mdtE","mdtG","mdtH", # Multidrug_Class
+              "catA","catB","cmlA","floR", # Phenicol
+              "sul1", # Sulfonamides
+              "tetM","tetW" # Tetracyclines
+)
+
+# Subset total for just those ARGs in arg.list
+subset.args.richness <- args.richness %>%
+                        select(arg.list)
+
+subset.args.richness.x <- as.data.frame(t(as.matrix(subset.args.richness)))
+
+# Pull names of the ARGs to be plotted into own dataframe
+subset.heatmap.annot <- as.data.frame(colnames(subset.args.richness))
+    colnames(subset.heatmap.annot) <- "Product_Name"
+
+subset.heatmap.annot2 <- left_join(subset.heatmap.annot, e01.shortbred.arg.marker.df[, c("Product_Name", "Drug_Targets")], by=c("Product_Name"))
+annot_col.df <- unique(subset.heatmap.annot2)
+tmp.annot_col.df <- data.frame("Drug_Targets"= annot_col.df$Drug_Targets)
+    rownames(tmp.annot_col.df) <- annot_col.df$Product_Name
+
+#subset.heatmap.fname <- stringr::str_interp("${fig.path}/${fln.prfx}-shortbred-subset_heatmap_v5_KB.pdf")
+    
+heatmap.subset.plot <- pheatmap(subset.args.richness.x,
+         color=c("white", "gray10"), 
+         cluster_rows=FALSE,
+         cluster_cols=FALSE,
+         annotation_row = tmp.annot_col.df,
+         legend=FALSE,
+         #filename=subset.heatmap.fname,  #remove comment-out to export
+         cellheight=8, cellwidth=8
+         ) +
+         theme_pub()
+
+
+```

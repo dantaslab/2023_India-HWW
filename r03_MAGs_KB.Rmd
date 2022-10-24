@@ -1,0 +1,203 @@
+---
+title: "MAG analyses"
+author: "Kevin S. Blake - kevin.blake@wustl.edu"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+#### **Purpose:** Generate figures related to MAG analyses
+
+- **Supp. Figure 3A.** Histogram of MAG species assignment, colored by MAG quality.
+- **Supp. Figure 3B.** ARG content of high-quality MAGs, identified by AMRFinder.
+
+
+```{r setup, message=FALSE, warning=FALSE}
+
+source("_common.R")
+
+```
+
+#### **Supp. Figure 3A.** Histogram of MAG species assignment, colored by MAG quality.
+
+```{r mash quality}
+
+# Exclude bins with "NONE" quality (i.e. NOT designated HIGH, MEDIUM, or LOW)
+MAG.summary <- e00.sewage.MAG_SUM.df %>%
+                filter(quality!="NONE") %>%
+                mutate(quality = factor(quality, levels=c("HIGH", "MEDIUM", "LOW")))
+
+# PLOT: Genus histogram across all quality types
+p.MAG.mash <- ggplot (MAG.summary, aes(x=mash_refseq_genus, fill=quality)) + # Can also switch to "mash_typestrain_genus"
+              theme_pub() +
+              theme(
+                    legend.position = "right",
+                    axis.line = element_line(color="white"),
+                    axis.text.x = element_text(angle = 90,hjust=0.95,vjust=0.2),
+                    axis.title.x = element_blank(),
+                    panel.border = element_rect(colour = "black", fill=NA, size=1),
+                    axis.ticks = element_line(color = "black", size=0.75)
+                    ) +
+              ylim(0,15) +            
+              geom_bar(position="stack")
+
+print(p.MAG.mash)
+
+## Export plot
+# MAG.mash.fname <- stringr::str_interp("${fig.path}/${fln.prfx}-MAG-mashBin_refseq_v1_KSB.pdf")
+# ggsave2(p.MAG.mash, filename = MAG.mash.fname, height=3, width=10, device=cairo_pdf)
+
+```
+
+```{r mash quality facet, include=FALSE}
+# PLOT: Genus histogram, faceted by quality
+p.MAG.mash.facet <- ggplot (MAG.summary, aes(x=mash_refseq_genus)) +
+              theme_pub() +
+              theme(
+                    legend.position = "right",
+                    axis.line = element_line(color="white"),
+                    axis.text.x = element_text(angle = 90,hjust=0.95,vjust=0.2),
+                    axis.title.x = element_blank(),
+                    panel.border = element_rect(colour = "black", fill=NA, size=1),
+                    axis.ticks = element_line(color = "black", size=0.75)
+                    ) +
+              facet_grid(. ~ quality, scales="free", space="free") +
+              geom_bar()
+              #geom_bar(position="stack")
+
+print(p.MAG.mash.facet)
+
+## Export plot
+# MAG.mash.facet.fname <- stringr::str_interp("${fig.path}/${fln.prfx}-MAG-mash-facet_refseq_v1_KSB.pdf")
+# ggsave2(p.MAG.mash.facet, filename = MAG.mash.facet.fname, height=3, width=12, device=cairo_pdf)
+
+```
+
+```{r mash genus count}
+
+MAG.mash.count <- MAG.summary %>%
+  group_by(mash_refseq_genus) %>%
+  summarise(Cnt = n()) %>%
+  ungroup() %>%
+  group_by(mash_refseq_genus) %>%
+  summarise(Total_cnt = sum(Cnt)) %>%
+  ungroup()
+
+head(MAG.mash.count)
+
+# # Export table
+# MAG.refseq.count.fname <- stringr::str_interp("${dat.path}/${fln.prfx}-MAG-mash_refseqGenusCount_v1_KSB.csv")
+# write.csv(file=MAG.refseq.count.fname, MAG.mash.count, quote=F, row.names=FALSE)
+
+```
+
+```{r mash quality subset}
+
+# Exclude bins with "NONE" quality (i.e. NOT designated HIGH, MEDIUM, or LOW)
+MAG.summary <- e00.sewage.MAG_SUM.df %>%
+                filter(quality!="NONE") %>%
+                mutate(quality = factor(quality, levels=c("HIGH", "MEDIUM", "LOW")))
+
+MAG.high.list <- e00.sewage.MAG_SUM.df %>%
+                filter(quality == "HIGH")
+
+### NOTE: this will not include MAGs in HIGH bin which do not have any ARGs called by AMRFinder
+MAG_AMR.filtered <-  filter(e00.sewage.MAG_AMR.df, bin %in% MAG.high.list$bin)
+
+```
+
+#### **Supp. Figure 3B.** ARG content of high-quality MAGs, identified by AMRFinder.
+
+```{r ARG analyses}
+
+# Calculate the prevalence of Args and use this information to define core and accessory Args in Ecoli     
+MAG.args.prev.df <- MAG_AMR.filtered %>% 
+                           dplyr::group_by(Class, Gene_name) %>% 
+                           dplyr::summarise(Cnt = n()) %>%
+                           dplyr::ungroup() %>%
+                           dplyr::group_by(Class, Gene_name) %>% 
+                           dplyr::summarise(Total_cnt = sum(Cnt)) %>% 
+                           dplyr::ungroup()
+
+# # Export table
+# MAG.args.prev.fname <- stringr::str_interp("${dat.path}/${fln.prfx}-MAG-arg-prev_v1_KSB.csv")
+# write.csv(file=MAG.args.prev.fname, MAG.args.prev.df, quote=F, row.names=FALSE)
+
+
+```
+
+```{r ARG heatmap}
+
+MAG.class.prev.df <- MAG_AMR.filtered %>% 
+                           dplyr::group_by(Class) %>% 
+                           dplyr::summarise(Cnt = n()) %>%
+                           dplyr::ungroup() %>%
+                           dplyr::group_by(Class) %>% 
+                           dplyr::summarise(Total_cnt = sum(Cnt)) %>% 
+                           dplyr::ungroup()
+
+tmp.args.lst <- MAG.args.prev.df %>% 
+   pull(Gene_name) %>% unique()
+MAG.args.x.df <- NULL
+
+MAG.args.x.df <- MAG_AMR.filtered %>%
+                           filter(Gene_name %in% tmp.args.lst) %>% 
+                           inner_join(e00.sewage.MAG_SUM.df, by="bin") %>% 
+                           group_by(bin, Class, Gene_name) %>% 
+                           summarise(Cnt = n()) %>% 
+                           mutate(Cnt = ifelse(Cnt > 1, 1, Cnt)) %>% 
+                           dcast(data = ., bin ~ Gene_name, value.var = "Cnt", fill=0, fun.aggregate = sum) %>% 
+                           mutate_if(is.numeric, ~1 * (. > 0)) %>% 
+                           ungroup()
+
+# Get list of high MAGs with ARGs identified
+MAG.high.AR.list <- unique(MAG_AMR.filtered[c("bin")])
+
+MAG.args.heatmap.values.df <- column_to_rownames(MAG.args.x.df, "bin")
+
+# Re-order based on ABX class
+MAG.args.heatmap.values.x.df <- as.data.frame(t(as.matrix(MAG.args.heatmap.values.df)))
+MAG.args.heatmap.values.x.df <- tibble::rownames_to_column(MAG.args.heatmap.values.x.df, "ABX")
+
+x <- c("aacA37", "aadA13", "ant(3'')", "aph(3')", "ampC", "bla", "blaOXA", "blaPER", "blaRSD2", "ere(D)", "erm", "erm(T)", "mef(C)", "mph(G)", "catA", "cml", "arr", "tet", "tet(B)", "tmexC3")
+
+MAG.args.heatmap.values2.df <- left_join(data.frame(ABX=x), MAG.args.heatmap.values.x.df, by = "ABX")
+MAG.args.heatmap.values2.df <- column_to_rownames(MAG.args.heatmap.values2.df, "ABX")
+
+MAG.args.heatmap.values.mat <- as.matrix.noquote(MAG.args.heatmap.values2.df)
+
+# Subset SUMMARY table to get just those that had ARGs identified (list above)
+MAG.high.genus.df <- MAG.high.list %>%
+                      filter(bin %in% MAG.high.AR.list$bin) %>%
+                      select("bin", "mash_refseq_genus")
+    annot_col.df <- column_to_rownames(MAG.high.genus.df, "bin")
+
+tmp.annot_row.df <- data.frame("Class"= MAG.args.prev.df$Class)
+    rownames(tmp.annot_row.df) <- MAG.args.prev.df$Gene_name
+    
+# Re-name to match ShortBRED formatting so can match the colorscheme
+    
+tmp.annot_row.2.df <- tmp.annot_row.df %>%
+                      mutate(Class = replace(Class, Class == "AMINOGLYCOSIDE", "Aminoglycosides")) %>%
+                      mutate(Class = replace(Class, Class == "BETA-LACTAM", "Beta_lactams")) %>%
+                      mutate(Class = replace(Class, Class == "MACROLIDE", "MLS")) %>%
+                      mutate(Class = replace(Class, Class == "PHENICOL", "Phenicol")) %>%
+                      mutate(Class = replace(Class, Class == "RIFAMYCIN", "Rifamycin")) %>%
+                      mutate(Class = replace(Class, Class == "TETRACYCLINE", "Tetracyclines"))
+
+# other.fname <- stringr::str_interp("${fig.path}/${fln.prfx}-MAG_ARGs-heatmap_v2.pdf")
+
+#plot
+heatmap.plot2 <- pheatmap(MAG.args.heatmap.values.mat, #MAG.args.heatmap.values.mat
+         color=c("white", "gray10"), 
+         cluster_rows=FALSE,
+         annotation_row = tmp.annot_row.df,
+         legend=FALSE,
+         #filename=other.fname, #remove comment-out to export
+         cellheight=12, cellwidth=12
+         ) +
+         theme_pub()
+
+```

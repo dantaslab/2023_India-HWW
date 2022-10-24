@@ -1,0 +1,107 @@
+---
+title: "Map: HWW sampling sites in northern India"
+author: "Kevin S. Blake - kevin.blake@wustl.edu"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+#### **Purpose:** Generate map of sampling site locations
+
+- **Figure 1.** Sampling of hospital wastewater across northern India
+
+```{r setup, message=FALSE, warning=FALSE}
+
+source("_common.R")
+
+```
+
+```{r data wrangling}
+
+# Get country/hospital/state names locations from Excel sheet
+map.countries <- e00.sewage.map.df %>% filter(code == "country")
+map.hospitals <- e00.sewage.map.df %>% filter(code == "sample")
+map.states <- e00.sewage.map.df %>% filter(code == "state")
+
+india.border <- ne_countries(returnclass = "sf", scale="large")
+world <- ne_countries(returnclass = "sf", scale="large")
+world.states <- ne_states(returnclass="sf")
+
+# Get city locations and names
+data(world.cities)
+india.cities <- subset(world.cities, country.etc %in% c("India"))
+map.cities.major <- subset(india.cities, name %in% c(
+  "Bombay",
+  "Delhi",
+  "Bangalore",
+  "Calcutta"
+))
+
+map.cities.minor <- subset(india.cities, name %in% c(
+  "Delhi",
+  "Calcutta"
+))
+
+# Rename cities
+  map.cities.major$name[map.cities.major$name=="Delhi"] <- "New Delhi"
+  map.cities.major$name[map.cities.major$name=="Bombay"] <- "Mumbai"
+  map.cities.major$name[map.cities.major$name=="Calcutta"] <- "Kolkata"
+
+```
+
+#### **Figure 1.** Sampling of hospital wastewater across northern India
+
+```{r Zoomed-out panel}
+
+world.map <- ggplot() +
+  theme_pub() +
+  theme(
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x=element_text(size=12),
+        axis.text.y=element_text(size=12)) +
+  geom_sf(data=world) +
+  geom_rect(aes(xmin=75.5, xmax=89.5, ymin=22.5, ymax=30.5), fill=NA, size=0.75, color="black") +
+  geom_point(data=map.cities.major, aes(x=long, y=lat), size=2) +
+  geom_text(data=map.cities.major, aes(x=long, y=lat, label=name), nudge_y=0.75, size=4) + #hjust=0, nudge_x=0.5, nudge_y=0.75
+  geom_point(data=map.hospitals, aes(x=long, y=lat), color="#E64B35", shape="square", size=3) +
+  geom_label(data=map.countries, aes(x=long, y=lat, label=name)) +
+  coord_sf(xlim=c(65,95), ylim=c(6.25,35), expand=TRUE) #expand=FALSE
+
+#print(world.map)
+
+```
+
+```{r Zoomed-in panel}
+
+world.states.map <- ggplot() +
+  theme_pub() +
+  theme(
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()
+        ) +
+  geom_sf(data=world.states) + #world map with states
+  geom_sf(data=india.border, size=0.8, color="gray20", fill=NA) + #world map without states, no fill so overlays with darker border
+  geom_point(data=map.hospitals, aes(x=long, y=lat), color="#E64B35", shape="square", size=3) +
+  geom_label(data=map.states, aes(x=long, y=lat, label=name)) +
+  geom_text_repel(data=map.hospitals, aes(x=long, y=lat, label=name2), color="#E64B35") +
+  coord_sf(xlim=c(75.5,89.5), ylim=c(22.5,30.5), expand=T) #expand=FALSE
+
+#print(world.states.map)
+
+```
+
+```{r map panels merged}
+
+plot.map.merged <- plot_grid(world.map, world.states.map)
+
+print(plot.map.merged)
+```
+
